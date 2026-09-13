@@ -1,387 +1,518 @@
 <!DOCTYPE html>
-<!-- index.html -->
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>QRコードグリッド生成ツール（PDFプレビュー対応）</title>
-  <!-- QRコード生成ライブラリ -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <!-- jsPDF（PDF生成用） -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
-  <!-- html2canvas（DOM→画像化用） -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <meta charset="UTF-8" />
+  <title>QRコードリーダー</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f5f7;
+      --fg: #111;
+      --accent: #007aff;
+      --card: #ffffff;
+      --border: #d0d0d5;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      margin: 20px;
-    }
-    h1 {
-      font-size: 1.4rem;
-    }
-    label {
-      font-size: 0.9rem;
-      display: block;
-      margin-top: 8px;
-    }
-    input, select, textarea, button {
-      font-size: 0.9rem;
-      margin-top: 4px;
-    }
-    textarea {
-      width: 100%;
-      height: 120px;
-    }
-    #controls {
-      max-width: 640px;
-      padding: 12px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      margin-bottom: 20px;
-    }
-    #messages {
-      margin-top: 10px;
-      font-size: 0.85rem;
-      color: #d00;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
     }
 
-    /* ここからプレビュー（PDFページの見た目を再現） */
-    #previewWrapper {
-      display: flex;
-      gap: 20px;
-      align-items: flex-start;
-      flex-wrap: wrap;
-    }
-
-    #pdfPreviewContainer {
-      border: 1px dashed #aaa;
-      padding: 8px;
-    }
-
-    #pdfPreviewLabel {
-      font-size: 0.85rem;
-      margin-bottom: 4px;
-    }
-
-    /* A4縦をおおまかに再現（pxベースだが縦横比はA4と同じ） */
-    #pdfPreview {
-      position: relative;
-      width: 595px;   /* A4幅 @72dpi 相当 */
-      height: 842px;  /* A4高さ @72dpi 相当 */
-      background: #fff;
-      box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
-      box-sizing: border-box;
-      overflow: hidden;
-    }
-
-    /* ページ内マージン */
-    #pdfPreviewInner {
-      position: absolute;
-      inset: 40px; /* 四辺 40px の余白（見た目用） */
-      display: grid;
-      gap: 8px;
-      box-sizing: border-box;
-    }
-
-    .qrCell {
-      border: 1px solid #ddd;
+    .app {
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 4px;
-      box-sizing: border-box;
-      font-size: 0.7rem;
+      max-width: 1200px;
+      margin: 0 auto;
     }
 
-    .qrCanvasWrapper {
-      width: 100%;
-      aspect-ratio: 1 / 1;
+    header {
+      padding: 12px 16px 8px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    header p {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+    }
+
+    .controls {
       display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-    }
-
-    .qrCell canvas, .qrCell img {
-      max-width: 100%;
-      max-height: 100%;
-    }
-
-    .qrText {
-      margin-top: 4px;
-      word-break: break-all;
-      text-align: center;
-    }
-
-    /* 補助：行列プレビュー（数だけ確認したいとき用） */
-    #layoutPreview {
-      display: grid;
-      gap: 4px;
+      gap: 8px;
       margin-top: 8px;
     }
-    .previewCell {
-      background: #e0f0ff;
-      border: 1px solid #99b;
-      font-size: 0.8rem;
+
+    .controls button {
+      flex: 1;
+      padding: 10px 0;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s ease, transform 0.05s ease;
+    }
+
+    .controls button:active {
+      transform: scale(0.97);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: #e5e5ea;
+      color: #333;
+    }
+
+    .btn-secondary:disabled,
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    main {
+      flex: 1;
+      padding: 10px 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* PC: カメラと結果を横並び */
+    @media (min-width: 768px) {
+      main {
+        flex-direction: row;
+        align-items: stretch;
+      }
+
+      .main-column {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .main-column.results {
+        max-width: 420px;
+      }
+    }
+
+    @media (max-width: 767px) {
+      .main-column {
+        width: 100%;
+      }
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      padding: 10px 10px 12px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .status {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .preview-wrapper {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+      width: 100%;
+    }
+
+    /* 内部的には 640x480 で描画して、CSS で横幅だけ伸ばす */
+    #canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #000;
+    }
+
+    .preview-overlay {
+      position: absolute;
+      inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 4px;
-      box-sizing: border-box;
+      pointer-events: none;
+      color: #fff;
+      font-size: 13px;
+      text-shadow: 0 0 8px rgba(0,0,0,0.8);
+      background: rgba(0,0,0,0.2);
     }
 
-    #pdfButton {
-      margin-top: 12px;
+    .preview-overlay.hidden {
+      opacity: 0;
+      background: transparent;
+    }
+
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .results-header span {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .tag-count {
+      font-size: 11px;
+      background: #eee;
+      padding: 2px 6px;
+      border-radius: 999px;
+      color: #666;
+    }
+
+    .results-list {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 4px;
+      max-height: 40vh;
+    }
+
+    @media (min-width: 768px) {
+      .results-list {
+        max-height: none;
+      }
+    }
+
+    .result-item {
+      padding: 6px 4px;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .result-item:last-child {
+      border-bottom: none;
+    }
+
+    .result-meta {
+      font-size: 11px;
+      color: #999;
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .result-index {
+      font-weight: 600;
+    }
+
+    .result-type {
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: #e5f2ff;
+      color: #0070c9;
+    }
+
+    .result-text a {
+      color: #007aff;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
+    .result-text {
+      word-break: break-word;
+      line-height: 1.3;
     }
   </style>
 </head>
+
 <body>
-  <h1>n×m QRコードグリッド生成ツール（PDFプレビュー対応）</h1>
-
-  <div id="controls">
-    <label>
-      行数 (n):
-      <input type="number" id="rows" value="3" min="1">
-    </label>
-    <label>
-      列数 (m):
-      <input type="number" id="cols" value="3" min="1">
-    </label>
-
-    <label>
-      QRコードの大きさ（プレビュー内のセル比率で自動調整します）
-      <span style="display:block;font-size:0.8rem;color:#555;">
-        ※物理サイズはPDF生成時に自動でページ幅に合わせて縮小されます。
-      </span>
-    </label>
-
-    <label>
-      復元率（エラー訂正レベル）:
-      <select id="ecc">
-        <option value="L">L (7%)</option>
-        <option value="M" selected>M (15%)</option>
-        <option value="Q">Q (25%)</option>
-        <option value="H">H (30%)</option>
-      </select>
-    </label>
-
-    <label>
-      バージョン（auto または 1〜40）:
-      <input type="text" id="version" value="auto" placeholder="auto または数字">
-    </label>
-
-    <label>
-      各セルに入れるテキスト（1行につき1つのQRコード）:
-      <textarea id="texts" placeholder="例：
-https://example.com/1
-https://example.com/2
-..."></textarea>
-    </label>
-
-    <button id="generateButton">QRコードを生成＆プレビュー更新</button>
-    <button id="pdfButton" disabled>このプレビューと同じ見た目でPDFを出力</button>
-
-    <div id="messages"></div>
-  </div>
-
-  <div id="previewWrapper">
-    <div id="pdfPreviewContainer">
-      <div id="pdfPreviewLabel">PDF プレビュー（この見た目がほぼそのままPDFになります）</div>
-      <div id="pdfPreview">
-        <div id="pdfPreviewInner">
-          <!-- ここにグリッドとしてQRが並ぶ -->
-        </div>
+  <div class="app">
+    <header>
+      <h1>QRコードリーダー</h1>
+      <p>カメラをオンにして、QRコードを中央に映してください。</p>
+      <div class="controls">
+        <button id="startButton" class="btn-primary">カメラ開始</button>
+        <button id="stopButton" class="btn-secondary" disabled>停止</button>
       </div>
-    </div>
+    </header>
 
-    <div>
-      <h2>配置イメージ（行×列）</h2>
-      <div id="layoutPreview"></div>
-    </div>
+    <main>
+      <section class="main-column card">
+        <div class="status" id="statusText">
+          カメラは停止中です。「カメラ開始」をタップしてください。
+        </div>
+        <div class="preview-wrapper">
+          <canvas id="canvas" hidden></canvas>
+          <div class="preview-overlay" id="overlayText">
+            カメラオフ
+          </div>
+        </div>
+      </section>
+
+      <section class="main-column results card">
+        <div class="results-header">
+          <span>検出されたQRコード</span>
+          <span class="tag-count" id="countTag">0件</span>
+        </div>
+        <div id="output" hidden>
+          <div id="resultsContainer" class="results-list"></div>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <!-- jsQRライブラリ（CDN） -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
   <script>
-    const generateButton = document.getElementById("generateButton");
-    const pdfButton = document.getElementById("pdfButton");
-    const messages = document.getElementById("messages");
-    const pdfPreviewInner = document.getElementById("pdfPreviewInner");
-    const layoutPreview = document.getElementById("layoutPreview");
+    const video = document.createElement("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-    let currentConfig = null; // PDF生成時に参照するための情報
+    const statusText = document.getElementById("statusText");
+    const overlayText = document.getElementById("overlayText");
+    const outputContainer = document.getElementById("output");
+    const resultsContainer = document.getElementById("resultsContainer");
+    const countTag = document.getElementById("countTag");
+    const startButton = document.getElementById("startButton");
+    const stopButton = document.getElementById("stopButton");
 
-    function parseVersion(value) {
-      if (!value || value.toLowerCase() === "auto") return 0; // 0 = 自動
-      const n = parseInt(value, 10);
-      if (isNaN(n) || n < 1 || n > 40) return 0;
-      return n;
+    const seenCodes = new Set();
+    let resultCount = 0;
+
+    const STABLE_THRESHOLD = 3;
+    let currentCandidate = null;
+    let currentCandidateCount = 0;
+
+    let stream = null;
+    let running = false;
+    let tickHandle = null;
+
+    function isUrlLike(text) {
+      return /^https?:\/\/[^\s]+$/i.test(text.trim());
     }
 
-    function showMessage(msg, isError = true) {
-      messages.style.color = isError ? "#d00" : "#060";
-      messages.textContent = msg;
+    function enhanceSimple(imageData) {
+      const data = imageData.data;
+      const contrast = 1.5;
+      const mid = 128;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        let v = 0.299 * r + 0.587 * g + 0.114 * b;
+        v = (v - mid) * contrast + mid;
+        if (v < 0) v = 0;
+        if (v > 255) v = 255;
+
+        data[i] = data[i + 1] = data[i + 2] = v;
+      }
+      return imageData;
     }
 
-    function clearPreview() {
-      pdfPreviewInner.innerHTML = "";
-      layoutPreview.innerHTML = "";
+    function drawLine(begin, end, color) {
+      ctx.beginPath();
+      ctx.moveTo(begin.x, begin.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = color;
+      ctx.stroke();
     }
 
-    function generatePreview() {
-      const rows = parseInt(document.getElementById("rows").value, 10);
-      const cols = parseInt(document.getElementById("cols").value, 10);
-      const ecc = document.getElementById("ecc").value;
-      const versionInput = document.getElementById("version").value.trim();
-      const version = parseVersion(versionInput);
+    function addResult(codeText) {
+      if (seenCodes.has(codeText)) return;
 
-      if (!rows || !cols || rows < 1 || cols < 1) {
-        showMessage("行数・列数は1以上の整数にしてください。");
-        return;
+      seenCodes.add(codeText);
+      resultCount++;
+      countTag.textContent = resultCount + "件";
+      outputContainer.hidden = false;
+
+      const item = document.createElement("div");
+      item.className = "result-item";
+
+      const meta = document.createElement("div");
+      meta.className = "result-meta";
+
+      const idx = document.createElement("span");
+      idx.className = "result-index";
+      idx.textContent = "#" + resultCount;
+
+      const type = document.createElement("span");
+      type.className = "result-type";
+      type.textContent = isUrlLike(codeText) ? "URL" : "テキスト";
+
+      meta.appendChild(idx);
+      meta.appendChild(type);
+
+      const textEl = document.createElement("div");
+      textEl.className = "result-text";
+
+      const trimmed = codeText.trim();
+      if (isUrlLike(trimmed)) {
+        const a = document.createElement("a");
+        a.href = trimmed;
+        a.textContent = trimmed;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        textEl.appendChild(a);
+      } else {
+        textEl.textContent = codeText;
       }
 
-      const textsRaw = document.getElementById("texts").value
-        .split("\n")
-        .map(s => s.trim())
-        .filter(s => s.length > 0);
-
-      const required = rows * cols;
-      if (textsRaw.length < required) {
-        showMessage(`テキストが不足しています。必要: ${required} 個 / 入力: ${textsRaw.length} 行`);
-        return;
-      }
-
-      showMessage("", false);
-      clearPreview();
-
-      // プレビューのグリッド設定
-      pdfPreviewInner.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-      pdfPreviewInner.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-
-      // 行列プレビュー
-      layoutPreview.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 60px))`;
-
-      currentConfig = {
-        rows,
-        cols,
-        ecc,
-        version,
-        texts: textsRaw.slice(0, required)
-      };
-
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const index = r * cols + c;
-          const text = textsRaw[index];
-
-          // ====== PDFプレビュー側のセル ======
-          const cell = document.createElement("div");
-          cell.className = "qrCell";
-
-          const qrWrapper = document.createElement("div");
-          qrWrapper.className = "qrCanvasWrapper";
-
-          const qrContainer = document.createElement("div");
-          qrContainer.style.width = "90%";
-          qrContainer.style.height = "90%";
-
-          qrWrapper.appendChild(qrContainer);
-          cell.appendChild(qrWrapper);
-
-          const textDiv = document.createElement("div");
-          textDiv.className = "qrText";
-          textDiv.textContent = text;
-          cell.appendChild(textDiv);
-
-          pdfPreviewInner.appendChild(cell);
-
-          // QRコード生成（プレビューにもそのまま出る）
-          new QRCode(qrContainer, {
-            text: text,
-            width: 256,   // 高解像度で作っておき、CSSで縮小
-            height: 256,
-            correctLevel: QRCode.CorrectLevel[ecc]
-          });
-          // versionはqrcode.js本体が自動選択（0指定）になるため、
-          // プレビューとPDFで同じアルゴリズムが走る = 見た目は一致。
-
-          // ====== 行列プレビュー用セル ======
-          const previewCell = document.createElement("div");
-          previewCell.className = "previewCell";
-          previewCell.textContent = `${r + 1},${c + 1}`;
-          layoutPreview.appendChild(previewCell);
-        }
-      }
-
-      pdfButton.disabled = false;
-      showMessage("プレビューを更新しました。この見た目に基づいてPDFを出力できます。", false);
+      item.appendChild(meta);
+      item.appendChild(textEl);
+      resultsContainer.appendChild(item);
     }
 
-    async function generatePDF() {
-      if (!currentConfig) {
-        showMessage("先にQRコードを生成してプレビューを更新してください。");
-        return;
-      }
-
-      const previewElement = document.getElementById("pdfPreview");
-
-      showMessage("PDFを生成しています…（少し時間がかかる場合があります）", false);
-      pdfButton.disabled = true;
-      generateButton.disabled = true;
-
+    async function startCamera() {
+      if (running) return;
       try {
-        // プレビューDOM全体を画像にする
-        const canvas = await html2canvas(previewElement, {
-          scale: 2,   // 解像度アップ
-          useCORS: true
+        statusText.textContent = "カメラを起動中です...";
+        overlayText.textContent = "起動中...";
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, max: 60 }
+          }
         });
 
-        const imgData = canvas.toDataURL("image/png");
+        video.srcObject = stream;
+        video.setAttribute("playsinline", true);
+        await video.play();
 
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({
-          orientation: "portrait",
-          unit: "mm",
-          format: "a4"
-        });
+        running = true;
+        startButton.disabled = true;
+        stopButton.disabled = false;
 
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
+        overlayText.classList.add("hidden");
+        statusText.textContent = "カメラ起動中。QRコードを中央に映してください。";
 
-        // プレビューのアスペクト比を維持しつつ、ページ内に最大化
-        const imgWidthPx = canvas.width;
-        const imgHeightPx = canvas.height;
-        const imgAspect = imgWidthPx / imgHeightPx;
-        const pageAspect = pageWidth / pageHeight;
+        // 内部解像度は固定 640x480（ここで決め打ち）
+        canvas.width = 640;
+        canvas.height = 480;
+        canvas.hidden = false;
 
-        let renderWidth, renderHeight;
-        if (imgAspect > pageAspect) {
-          // 横長なので幅基準
-          renderWidth = pageWidth;
-          renderHeight = pageWidth / imgAspect;
-        } else {
-          // 縦長なので高さ基準
-          renderHeight = pageHeight;
-          renderWidth = pageHeight * imgAspect;
-        }
-
-        const offsetX = (pageWidth - renderWidth) / 2;
-        const offsetY = (pageHeight - renderHeight) / 2;
-
-        pdf.addImage(imgData, "PNG", offsetX, offsetY, renderWidth, renderHeight);
-        pdf.save("qr_grid_preview.pdf");
-
-        showMessage("PDFを生成しました。プレビューと同じ配置で出力されています。", false);
-      } catch (e) {
-        console.error(e);
-        showMessage("PDF生成中にエラーが発生しました。コンソールを確認してください。");
-      } finally {
-        pdfButton.disabled = false;
-        generateButton.disabled = false;
+        tickHandle = requestAnimationFrame(tick);
+      } catch (err) {
+        statusText.textContent = "カメラにアクセスできません: " + err.message;
+        overlayText.textContent = "エラー";
       }
     }
 
-    generateButton.addEventListener("click", generatePreview);
-    pdfButton.addEventListener("click", generatePDF);
+    function stopCamera() {
+      if (!running) return;
+
+      running = false;
+
+      if (tickHandle !== null) {
+        cancelAnimationFrame(tickHandle);
+        tickHandle = null;
+      }
+
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      video.srcObject = null;
+
+      canvas.hidden = true;
+      overlayText.classList.remove("hidden");
+      overlayText.textContent = "カメラオフ";
+      statusText.textContent = "カメラは停止中です。「カメラ開始」をタップしてください。";
+
+      startButton.disabled = false;
+      stopButton.disabled = true;
+    }
+
+    function tick() {
+      if (!running) return;
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        // 動画フレームを 640x480 に縮小して描画
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        let code = jsQR(imageData.data, canvas.width, canvas.height, {
+          inversionAttempts: "attemptBoth",
+        });
+
+        if (!code) {
+          const enhanced = enhanceSimple(
+            new ImageData(
+              new Uint8ClampedArray(imageData.data),
+              canvas.width,
+              canvas.height
+            )
+          );
+          code = jsQR(enhanced.data, canvas.width, canvas.height, {
+            inversionAttempts: "attemptBoth",
+          });
+        }
+
+        if (code) {
+          drawLine(code.location.topLeftCorner, code.location.topRightCorner, "#FF3B58");
+          drawLine(code.location.topRightCorner, code.location.bottomRightCorner, "#FF3B58");
+          drawLine(code.location.bottomRightCorner, code.location.bottomLeftCorner, "#FF3B58");
+          drawLine(code.location.bottomLeftCorner, code.location.topLeftCorner, "#FF3B58");
+
+          const text = code.data;
+          if (text === currentCandidate) {
+            currentCandidateCount++;
+          } else {
+            currentCandidate = text;
+            currentCandidateCount = 1;
+          }
+
+          if (currentCandidateCount === STABLE_THRESHOLD) {
+            addResult(text);
+          }
+        } else {
+          currentCandidate = null;
+          currentCandidateCount = 0;
+        }
+      }
+
+      tickHandle = requestAnimationFrame(tick);
+    }
+
+    startButton.addEventListener("click", startCamera);
+    stopButton.addEventListener("click", stopCamera);
   </script>
 </body>
 </html>
