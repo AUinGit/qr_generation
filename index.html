@@ -3,11 +3,14 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>QRコードグリッド生成ツール</title>
+  <title>QRコードグリッド生成ツール（PDFプレビュー対応）</title>
   <!-- QRコード生成ライブラリ -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <!-- jsPDF（PDF生成用） -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+  <!-- html2canvas（DOM→画像化用） -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -36,27 +39,88 @@
       border-radius: 8px;
       margin-bottom: 20px;
     }
-    #gridContainer {
+    #messages {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      color: #d00;
+    }
+
+    /* ここからプレビュー（PDFページの見た目を再現） */
+    #previewWrapper {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    #pdfPreviewContainer {
+      border: 1px dashed #aaa;
+      padding: 8px;
+    }
+
+    #pdfPreviewLabel {
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+    }
+
+    /* A4縦をおおまかに再現（pxベースだが縦横比はA4と同じ） */
+    #pdfPreview {
+      position: relative;
+      width: 595px;   /* A4幅 @72dpi 相当 */
+      height: 842px;  /* A4高さ @72dpi 相当 */
+      background: #fff;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+
+    /* ページ内マージン */
+    #pdfPreviewInner {
+      position: absolute;
+      inset: 40px; /* 四辺 40px の余白（見た目用） */
       display: grid;
       gap: 8px;
-      margin-top: 16px;
+      box-sizing: border-box;
     }
-    .qr-item {
+
+    .qrCell {
       border: 1px solid #ddd;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       padding: 4px;
-      text-align: center;
+      box-sizing: border-box;
       font-size: 0.7rem;
     }
-    .qr-label {
+
+    .qrCanvasWrapper {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .qrCell canvas, .qrCell img {
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .qrText {
       margin-top: 4px;
       word-break: break-all;
+      text-align: center;
     }
+
+    /* 補助：行列プレビュー（数だけ確認したいとき用） */
     #layoutPreview {
-      margin-top: 20px;
       display: grid;
       gap: 4px;
+      margin-top: 8px;
     }
-    .preview-cell {
+    .previewCell {
       background: #e0f0ff;
       border: 1px solid #99b;
       font-size: 0.8rem;
@@ -64,19 +128,16 @@
       align-items: center;
       justify-content: center;
       padding: 4px;
+      box-sizing: border-box;
     }
-    #messages {
-      margin-top: 10px;
-      font-size: 0.85rem;
-      color: #d00;
-    }
+
     #pdfButton {
       margin-top: 12px;
     }
   </style>
 </head>
 <body>
-  <h1>n×m QRコードグリッド生成ツール</h1>
+  <h1>n×m QRコードグリッド生成ツール（PDFプレビュー対応）</h1>
 
   <div id="controls">
     <label>
@@ -87,13 +148,12 @@
       列数 (m):
       <input type="number" id="cols" value="3" min="1">
     </label>
+
     <label>
-      1つあたりのQRサイズ（ピクセル）:
-      <input type="number" id="qrSize" value="128" min="50" max="500">
-    </label>
-    <label>
-      PDF内の余白（mm）:
-      <input type="number" id="pdfMargin" value="10" min="0" max="30">
+      QRコードの大きさ（プレビュー内のセル比率で自動調整します）
+      <span style="display:block;font-size:0.8rem;color:#555;">
+        ※物理サイズはPDF生成時に自動でページ幅に合わせて縮小されます。
+      </span>
     </label>
 
     <label>
@@ -119,30 +179,39 @@ https://example.com/2
 ..."></textarea>
     </label>
 
-    <button id="generateButton">QRコードを生成</button>
-    <button id="pdfButton" disabled>PDFを出力</button>
+    <button id="generateButton">QRコードを生成＆プレビュー更新</button>
+    <button id="pdfButton" disabled>このプレビューと同じ見た目でPDFを出力</button>
 
     <div id="messages"></div>
   </div>
 
-  <h2>QRコードグリッド</h2>
-  <div id="gridContainer"></div>
+  <div id="previewWrapper">
+    <div id="pdfPreviewContainer">
+      <div id="pdfPreviewLabel">PDF プレビュー（この見た目がほぼそのままPDFになります）</div>
+      <div id="pdfPreview">
+        <div id="pdfPreviewInner">
+          <!-- ここにグリッドとしてQRが並ぶ -->
+        </div>
+      </div>
+    </div>
 
-  <h2>配置イメージ（行×列のプレビュー）</h2>
-  <div id="layoutPreview"></div>
+    <div>
+      <h2>配置イメージ（行×列）</h2>
+      <div id="layoutPreview"></div>
+    </div>
+  </div>
 
   <script>
-    const gridContainer = document.getElementById("gridContainer");
-    const layoutPreview = document.getElementById("layoutPreview");
-    const messages = document.getElementById("messages");
     const generateButton = document.getElementById("generateButton");
     const pdfButton = document.getElementById("pdfButton");
+    const messages = document.getElementById("messages");
+    const pdfPreviewInner = document.getElementById("pdfPreviewInner");
+    const layoutPreview = document.getElementById("layoutPreview");
 
-    // 現在のグリッド設定を保持してPDF生成時にも使う
-    let currentQRInfos = []; // { text, ecc, version, size }
+    let currentConfig = null; // PDF生成時に参照するための情報
 
     function parseVersion(value) {
-      if (!value || value.toLowerCase() === "auto") return 0; // qrcode.js の 0 = 自動
+      if (!value || value.toLowerCase() === "auto") return 0; // 0 = 自動
       const n = parseInt(value, 10);
       if (isNaN(n) || n < 1 || n > 40) return 0;
       return n;
@@ -153,10 +222,14 @@ https://example.com/2
       messages.textContent = msg;
     }
 
-    function generateGrid() {
+    function clearPreview() {
+      pdfPreviewInner.innerHTML = "";
+      layoutPreview.innerHTML = "";
+    }
+
+    function generatePreview() {
       const rows = parseInt(document.getElementById("rows").value, 10);
       const cols = parseInt(document.getElementById("cols").value, 10);
-      const qrSize = parseInt(document.getElementById("qrSize").value, 10);
       const ecc = document.getElementById("ecc").value;
       const versionInput = document.getElementById("version").value.trim();
       const version = parseVersion(versionInput);
@@ -178,156 +251,136 @@ https://example.com/2
       }
 
       showMessage("", false);
-      gridContainer.innerHTML = "";
-      layoutPreview.innerHTML = "";
-      currentQRInfos = [];
+      clearPreview();
 
-      // CSSグリッドの列数を設定
-      gridContainer.style.gridTemplateColumns = `repeat(${cols}, auto)`;
+      // プレビューのグリッド設定
+      pdfPreviewInner.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      pdfPreviewInner.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+
+      // 行列プレビュー
       layoutPreview.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 60px))`;
 
-      // QRコード生成
+      currentConfig = {
+        rows,
+        cols,
+        ecc,
+        version,
+        texts: textsRaw.slice(0, required)
+      };
+
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const index = r * cols + c;
           const text = textsRaw[index];
 
-          const itemDiv = document.createElement("div");
-          itemDiv.className = "qr-item";
+          // ====== PDFプレビュー側のセル ======
+          const cell = document.createElement("div");
+          cell.className = "qrCell";
 
-          const qrDiv = document.createElement("div");
-          qrDiv.style.width = qrSize + "px";
-          qrDiv.style.height = qrSize + "px";
-          qrDiv.style.margin = "0 auto";
+          const qrWrapper = document.createElement("div");
+          qrWrapper.className = "qrCanvasWrapper";
 
-          itemDiv.appendChild(qrDiv);
+          const qrContainer = document.createElement("div");
+          qrContainer.style.width = "90%";
+          qrContainer.style.height = "90%";
 
-          const label = document.createElement("div");
-          label.className = "qr-label";
-          label.textContent = text;
-          itemDiv.appendChild(label);
+          qrWrapper.appendChild(qrContainer);
+          cell.appendChild(qrWrapper);
 
-          gridContainer.appendChild(itemDiv);
+          const textDiv = document.createElement("div");
+          textDiv.className = "qrText";
+          textDiv.textContent = text;
+          cell.appendChild(textDiv);
 
-          // QR生成
-          new QRCode(qrDiv, {
+          pdfPreviewInner.appendChild(cell);
+
+          // QRコード生成（プレビューにもそのまま出る）
+          new QRCode(qrContainer, {
             text: text,
-            width: qrSize,
-            height: qrSize,
-            correctLevel: QRCode.CorrectLevel[ecc],
-            // version: 0 (auto) か 1〜40
+            width: 256,   // 高解像度で作っておき、CSSで縮小
+            height: 256,
+            correctLevel: QRCode.CorrectLevel[ecc]
           });
-          // ライブラリの都合で version を直接指定する公式APIはないが、
-          // ライブラリ改造なしで標準の自動決定を利用することにする。
-          // もし厳密にバージョン指定したければ別ライブラリ採用を推奨。
+          // versionはqrcode.js本体が自動選択（0指定）になるため、
+          // プレビューとPDFで同じアルゴリズムが走る = 見た目は一致。
 
-          // 現在の情報を保存（PDF用）
-          currentQRInfos.push({
-            text,
-            ecc,
-            version,
-            size: qrSize
-          });
-
-          // 配置プレビュー用セル
+          // ====== 行列プレビュー用セル ======
           const previewCell = document.createElement("div");
-          previewCell.className = "preview-cell";
+          previewCell.className = "previewCell";
           previewCell.textContent = `${r + 1},${c + 1}`;
           layoutPreview.appendChild(previewCell);
         }
       }
 
       pdfButton.disabled = false;
-      showMessage("QRコードを生成しました。PDF出力ボタンからPDFを作成できます。", false);
+      showMessage("プレビューを更新しました。この見た目に基づいてPDFを出力できます。", false);
     }
 
     async function generatePDF() {
-      if (!currentQRInfos.length) {
-        showMessage("先にQRコードを生成してください。");
+      if (!currentConfig) {
+        showMessage("先にQRコードを生成してプレビューを更新してください。");
         return;
       }
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({
-        unit: "mm",
-        format: "a4"
-      });
 
-      const margin = parseFloat(document.getElementById("pdfMargin").value) || 10;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
+      const previewElement = document.getElementById("pdfPreview");
 
-      const rows = parseInt(document.getElementById("rows").value, 10);
-      const cols = parseInt(document.getElementById("cols").value, 10);
+      showMessage("PDFを生成しています…（少し時間がかかる場合があります）", false);
+      pdfButton.disabled = true;
+      generateButton.disabled = true;
 
-      // QRをページに詰める（1ページに全部収まらない場合はページ追加）
-      const cellW = (pageWidth - margin * 2) / cols;
-      const cellH = (pageHeight - margin * 2) / rows;
-      const cellSize = Math.min(cellW, cellH) * 0.9; // ちょっと余白を取る
-
-      const tempContainer = document.createElement("div");
-      tempContainer.style.position = "fixed";
-      tempContainer.style.left = "-10000px";
-      document.body.appendChild(tempContainer);
-
-      for (let i = 0; i < currentQRInfos.length; i++) {
-        const info = currentQRInfos[i];
-
-        // 一時的にQRコードを生成して画像化（PDF用）
-        const tempDiv = document.createElement("div");
-        tempContainer.appendChild(tempDiv);
-        const sizePx = 256; // 高めに作ってPDFで縮小
-        new QRCode(tempDiv, {
-          text: info.text,
-          width: sizePx,
-          height: sizePx,
-          correctLevel: QRCode.CorrectLevel[info.ecc]
+      try {
+        // プレビューDOM全体を画像にする
+        const canvas = await html2canvas(previewElement, {
+          scale: 2,   // 解像度アップ
+          useCORS: true
         });
 
-        // qrcode.js は img または canvas を作るのでそれを取得
-        let imgEl = tempDiv.querySelector("img");
-        if (!imgEl) {
-          const canvas = tempDiv.querySelector("canvas");
-          if (canvas) {
-            imgEl = new Image();
-            imgEl.src = canvas.toDataURL("image/png");
-          }
+        const imgData = canvas.toDataURL("image/png");
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({
+          orientation: "portrait",
+          unit: "mm",
+          format: "a4"
+        });
+
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        // プレビューのアスペクト比を維持しつつ、ページ内に最大化
+        const imgWidthPx = canvas.width;
+        const imgHeightPx = canvas.height;
+        const imgAspect = imgWidthPx / imgHeightPx;
+        const pageAspect = pageWidth / pageHeight;
+
+        let renderWidth, renderHeight;
+        if (imgAspect > pageAspect) {
+          // 横長なので幅基準
+          renderWidth = pageWidth;
+          renderHeight = pageWidth / imgAspect;
+        } else {
+          // 縦長なので高さ基準
+          renderHeight = pageHeight;
+          renderWidth = pageHeight * imgAspect;
         }
 
-        if (!imgEl) continue;
+        const offsetX = (pageWidth - renderWidth) / 2;
+        const offsetY = (pageHeight - renderHeight) / 2;
 
-        // imgのロード完了を待ってからPDFへ追加
-        await new Promise(resolve => {
-          if (imgEl.complete) {
-            resolve();
-          } else {
-            imgEl.onload = () => resolve();
-            imgEl.onerror = () => resolve();
-          }
-        });
+        pdf.addImage(imgData, "PNG", offsetX, offsetY, renderWidth, renderHeight);
+        pdf.save("qr_grid_preview.pdf");
 
-        const dataUrl = imgEl.src;
-
-        const r = Math.floor(i / cols);
-        const c = i % cols;
-
-        const x = margin + c * cellW + (cellW - cellSize) / 2;
-        const y = margin + r * cellH + (cellH - cellSize) / 2;
-
-        // ページを超える場合は新しいページへ（単純化のため全グリッドを1ページに収める前提）
-        pdf.addImage(dataUrl, "PNG", x, y, cellSize, cellSize);
-
-        // ラベルも小さく描画（任意）
-        pdf.setFontSize(6);
-        pdf.text(info.text.substring(0, 20), x, y + cellSize + 3, { maxWidth: cellW - 2 });
+        showMessage("PDFを生成しました。プレビューと同じ配置で出力されています。", false);
+      } catch (e) {
+        console.error(e);
+        showMessage("PDF生成中にエラーが発生しました。コンソールを確認してください。");
+      } finally {
+        pdfButton.disabled = false;
+        generateButton.disabled = false;
       }
-
-      document.body.removeChild(tempContainer);
-
-      pdf.save("qr_grid.pdf");
-      showMessage("PDFを生成しました。", false);
     }
 
-    generateButton.addEventListener("click", generateGrid);
+    generateButton.addEventListener("click", generatePreview);
     pdfButton.addEventListener("click", generatePDF);
   </script>
 </body>
